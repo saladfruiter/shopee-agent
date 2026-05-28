@@ -12,6 +12,8 @@ Uso:
     python affiliate_linker.py --trends trends/2026-05-27.json --top 5
 """
 
+from __future__ import annotations
+
 import csv
 import json
 import logging

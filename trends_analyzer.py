@@ -12,6 +12,8 @@ Ranking ponderado: Buscas 40% + Social 30% + Vendas 30%
 Saída: trends/YYYY-MM-DD.json com até 10 produtos ranqueados.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -28,6 +30,8 @@ import feedparser
 import requests
 import yaml
 from pytrends.request import TrendReq
+
+from config_loader import load_config as _load_config_base
 
 # ---------------------------------------------------------------------------
 # Configuração
@@ -49,9 +53,8 @@ BACKOFF_MULTIPLIER = 2
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
-    """Load YAML config with validation."""
-    with open(path, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+    """Load YAML config with validation using centralized loader."""
+    cfg = _load_config_base(str(path))
     # Validate weights sum to ~1.0
     weights = cfg.get("trending", {}).get("weights", {})
     total = sum(weights.values())

@@ -70,10 +70,22 @@ shopee:
 
 # Video sources (Tier 1 - Commercial License)
 video_sources:
-  - "pexels"
-  - "pixabay"
-  - "coverr"
-  - "mixkit"
+  tier1:
+    - name: "pexels"
+      url: "https://www.pexels.com/search/videos/"
+    - name: "pixabay"
+      url: "https://pixabay.com/"
+    - name: "coverr"
+      url: "https://coverr.co/s"
+    - name: "mixkit"
+      url: "https://mixkit.co/"
+
+# Video quality thresholds
+video_quality:
+  min_resolution: "720p"
+  min_duration_sec: 15
+  max_duration_sec: 60
+  min_bitrate_kbps: 2000
 
 # Model settings
 model:

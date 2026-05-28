@@ -5,6 +5,8 @@ Downloads videos using yt-dlp, validates with ffprobe, computes perceptual hash,
 and saves metadata.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import json
@@ -189,14 +191,14 @@ class VideoDownloader:
         # Prepare output path
         video_path, json_path = self._generate_filename(product_name, video_index)
         
-        # Update yt-dlp output template
-        self.ydl_opts["outtmpl"] = str(video_path.with_suffix(""))  # yt-dlp adds extension
+        # Create yt-dlp options per call (avoid shared mutable state)
+        ydl_opts = {**self.ydl_opts, "outtmpl": str(video_path.with_suffix(""))}
         
         # Retry loop
         for attempt in range(self.max_retries):
             try:
                 logger.info(f"Downloading attempt {attempt+1}/{self.max_retries}: {url}")
-                with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     if not info:
                         raise Exception("yt-dlp returned no info")

@@ -1,10 +1,10 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS base
 
 # Prevent Python from writing .pyc files + unbuffered output
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies
+# Install system dependencies (runtime only)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     tesseract-ocr \
@@ -14,9 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender-dev \
-    wget \
-    git \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

@@ -1,0 +1,87 @@
+# Shopee Videos Pipeline - Configuration
+# Niche: Tech + Gadgets Adjacentes
+
+project:
+  name: "shopee-videos"
+  storage_root: "/mnt/user/data/shopee-agent"
+  max_videos_per_product: 1
+  rejected_ttl_days: 7
+
+# Trend analysis weights (must sum to 1.0)
+trending:
+  weights:
+    search: 0.40      # Google Trends weight
+    social: 0.30      # Social/Blog mentions weight
+    sales: 0.30       # Amazon Sales rank weight
+  max_products_per_day: 10
+  feedback_multiplier: 1.2  # Bonus for products with high engagement in data.db
+
+# Niche filters
+niche:
+  primary:
+    - "smartphones"
+    - "celulares"
+    - "phones"
+    - "headphones"
+    - "earbuds"
+    - "smartwatch"
+    - "smart watch"
+    - "tablet"
+    - "laptop stand"
+    - "mouse pad"
+    - "mechanical keyboard"
+    - "webcam"
+    - "microphone"
+  secondary:
+    - "smart home"
+    - "led strip"
+    - "led lights"
+    - "desk accessories"
+    - "cable management"
+    - "phone holder"
+    - "charger"
+    - "power bank"
+    - "usb hub"
+    - "ring light"
+    - "monitor arm"
+    - "desk lamp"
+    - "wireless charger"
+    - "bluetooth speaker"
+    - "gaming accessories"
+
+# RSS feeds for tech blogs
+rss_feeds:
+  - "https://www.theverge.com/rss/index.xml"
+  - "https://feeds.arstechnica.com/arstechnica/gadgets"
+  - "https://www.engadget.com/rss.xml"
+  - "https://techcrunch.com/feed/"
+
+# Amazon settings
+amazon:
+  movers_shakers_url: "https://www.amazon.com/gp/movers-and-shakers"
+  locale: "US"
+  target_locale_br: true  # Cross-reference with BR availability
+
+# Shopee Affiliate
+shopee:
+  app_id_env: "SHOPEE_APP_ID"
+  app_secret_env: "SHOPEE_APP_SECRET"
+  affiliate_program: "BR"
+
+# Video sources (Tier 1 - Commercial License)
+video_sources:
+  - "pexels"
+  - "pixabay"
+  - "coverr"
+  - "mixkit"
+
+# Model settings
+model:
+  provider: "opencode-go"
+  name: "qwen3.5:7b"
+
+# Retry settings
+retry:
+  max_attempts: 3
+  base_delay_seconds: 2
+  backoff_multiplier: 2

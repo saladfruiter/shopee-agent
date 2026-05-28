@@ -1,0 +1,7 @@
+# Shopee Videos Pipeline — Dependencies
+pytrends>=4.9.0
+feedparser>=6.0.0
+pyyaml>=6.0
+requests>=2.31.0
+pandas>=2.0.0
+lxml>=5.0.0

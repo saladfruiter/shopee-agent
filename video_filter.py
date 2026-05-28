@@ -18,6 +18,8 @@ Usage:
     result = filter.filter_video("raw_videos/2026-05-27/product-001.mp4")
 """
 
+from __future__ import annotations
+
 import os
 import json
 import shutil
@@ -227,13 +229,21 @@ class VideoFilter:
             
             format_info = data.get("format", {})
             
+            # Parse frame rate safely (avoid eval)
+            r_frame_rate = video_stream.get("r_frame_rate", "0/1")
+            if "/" in r_frame_rate:
+                num, den = r_frame_rate.split("/")
+                fps = int(num) / int(den) if int(den) != 0 else 0.0
+            else:
+                fps = float(r_frame_rate) if r_frame_rate else 0.0
+
             return {
                 "width": int(video_stream.get("width", 0)),
                 "height": int(video_stream.get("height", 0)),
                 "duration": float(format_info.get("duration", 0)),
                 "bitrate": int(format_info.get("bit_rate", 0)),
                 "codec": video_stream.get("codec_name", "unknown"),
-                "fps": eval(video_stream.get("r_frame_rate", "0/1")) if "/" in video_stream.get("r_frame_rate", "0/1") else float(video_stream.get("r_frame_rate", 0)),
+                "fps": fps,
                 "size_bytes": int(format_info.get("size", 0)),
             }
         except Exception as e:

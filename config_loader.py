@@ -6,6 +6,8 @@ Configuration Loader for Shopee Agent
 Loads configuration from config.yaml in project root.
 """
 
+from __future__ import annotations
+
 import os
 import yaml
 from pathlib import Path

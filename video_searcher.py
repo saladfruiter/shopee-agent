@@ -5,6 +5,8 @@ Searches for videos from Tier 1 sources (Pexels, Pixabay, Coverr, Mixkit) using 
 with Brave Search API as fallback for general video discovery.
 """
 
+from __future__ import annotations
+
 import os
 import logging
 import json

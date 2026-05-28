@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender-dev \
+    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -29,9 +30,14 @@ COPY . .
 # Create runtime directories
 RUN mkdir -p trends raw_videos approved rejected reports config/prompts logs
 
-# Set environment (override with docker run -e)
+# Make entrypoint executable
+RUN chmod +x /app/entrypoint.sh
+
+# Set environment (override with docker run -e or .env)
 ENV SHOPEE_APP_ID=""
 ENV SHOPEE_APP_SECRET=""
+ENV CRON_SCHEDULE="0 8 * * *"
+ENV TZ=America/Sao_Paulo
 
-# Default entrypoint
-CMD ["python", "main.py"]
+# Entrypoint: cron daemon (container fica vivo)
+ENTRYPOINT ["/app/entrypoint.sh"]

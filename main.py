@@ -72,6 +72,10 @@ def main():
         "--dry-run", action="store_true",
         help="Validate without executing external calls"
     )
+    parser.add_argument(
+        "--no-llm", action="store_true",
+        help="Skip LLM refinement in trend analysis"
+    )
     args = parser.parse_args()
 
     logger.info("Shopee Videos Pipeline starting...")
@@ -120,7 +124,7 @@ def main():
         logger.info("=" * 60)
         logger.info("STEP 1: Trend Analysis")
         logger.info("=" * 60)
-        run_step_1_trends(cfg, day_dir, use_llm=True)
+        run_step_1_trends(cfg, day_dir, use_llm=not args.no_llm)
 
     # Steps 2-7: TODO — implemented in subsequent tasks
     for step_num in range(2, 8):

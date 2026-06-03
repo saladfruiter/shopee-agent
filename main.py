@@ -54,6 +54,21 @@ def run_step_1_trends(config: dict, day_dir: Path, use_llm: bool = True) -> dict
     return result
 
 
+def run_step_2_video_search(config: dict, day_dir: Path, trends_result: dict) -> dict:
+    """Run video search (Etapa 2) for trending products."""
+    from video_searcher import search_videos_for_products
+    products = trends_result.get("ranked_products", [])
+    max_videos = config.get("project", {}).get("max_videos_per_product", 1)
+    result = search_videos_for_products(
+        products=products,
+        output_dir=day_dir / "raw_videos",
+        max_videos_per_product=max_videos,
+    )
+    found = sum(1 for p in result.get("products", []) if p.get("videos"))
+    logger.info("Step 2 complete: videos found for %d/%d products", found, len(products))
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="Shopee Videos Pipeline")
     parser.add_argument(
@@ -126,8 +141,16 @@ def main():
         logger.info("=" * 60)
         run_step_1_trends(cfg, day_dir, use_llm=not args.no_llm)
 
-    # Steps 2-7: TODO — implemented in subsequent tasks
-    for step_num in range(2, 8):
+    # Step 2: Video Search
+    if args.step is None or args.step == 2:
+        logger.info("=" * 60)
+        logger.info("STEP 2: Video Search")
+        logger.info("=" * 60)
+        trends_result = json.loads((day_dir / "trends" / f"{date_str}.json").read_text())
+        run_step_2_video_search(cfg, day_dir, trends_result)
+
+    # Steps 3-7: TODO — implemented in subsequent tasks
+    for step_num in range(3, 8):
         if args.step is not None and args.step != step_num:
             continue
         logger.info("STEP %d: NOT YET IMPLEMENTED", step_num)

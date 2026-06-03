@@ -1,314 +1,188 @@
 #!/usr/bin/env python3
-"""Video Search Module for Shopee Videos Pipeline.
+"""
+Video Search Module — Etapa 2 do Pipeline Shopee Videos
 
-Searches for videos from Tier 1 sources (Pexels, Pixabay, Coverr, Mixkit) using yt-dlp,
-with Brave Search API as fallback for general video discovery.
+Busca videos com licença comercial (Pexels API) para os produtos trending.
+Salva URLs e metadata em raw_videos/search_results.json.
 """
 
 from __future__ import annotations
 
-import os
-import logging
 import json
+import logging
+import os
+import time
+import random
 from dataclasses import dataclass, asdict
-from typing import Optional, List, Dict, Any
-from urllib.parse import quote_plus
+from pathlib import Path
+from typing import Any
 
-import yt_dlp
 import requests
+from dotenv import load_dotenv
 
-from config_loader import load_config
+# Load .env from project root
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("video_searcher")
+
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
+PEXELS_API_URL = "https://api.pexels.com/videos/search"
 
 
 @dataclass
 class VideoCandidate:
-    """Represents a potential video to download."""
     url: str
-    source: str  # e.g., "pexels", "pixabay", "brave_search"
-    title: Optional[str] = None
-    duration: Optional[float] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
-    thumbnail: Optional[str] = None
-    description: Optional[str] = None
-    uploader: Optional[str] = None
-    upload_date: Optional[str] = None
-    view_count: Optional[int] = None
-    like_count: Optional[int] = None
-    comment_count: Optional[int] = None
-    metadata: Optional[Dict[str, Any]] = None
+    source: str
+    title: str = ""
+    duration: float = 0
+    width: int = 0
+    height: int = 0
+    thumbnail: str = ""
+    video_files: list[dict] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def __post_init__(self):
+        if self.video_files is None:
+            self.video_files = []
+
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
-class VideoSearcher:
-    """Searches for videos across multiple sources."""
+def search_pexels(query: str, max_results: int = 5) -> list[VideoCandidate]:
+    """Search Pexels for free commercial license videos."""
+    if not PEXELS_API_KEY:
+        logger.warning("PEXELS_API_KEY not set. Set env var to enable video search.")
+        return []
 
-    def __init__(self, config_path: str = "config.yaml"):
-        self.config = load_config(config_path)
-        self.tier1_sources = self.config.get("video_sources", {}).get("tier1", [])
-        self.brave_api_key = os.environ.get("BRAVE_API_KEY")
-        self.quality_thresholds = self.config.get("video_quality", {})
-        self.min_resolution = self.quality_thresholds.get("min_resolution", "720p")
-        self.min_duration = self.quality_thresholds.get("min_duration_sec", 10)
-        self.max_duration = self.quality_thresholds.get("max_duration_sec", 120)
-        self.min_bitrate = self.quality_thresholds.get("min_bitrate_kbps", 2000)
+    headers = {"Authorization": PEXELS_API_KEY}
+    params = {"query": query, "per_page": max_results, "orientation": "portrait"}
 
-        # yt-dlp options for metadata extraction
-        self.ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "skip_download": True,
-            "forcejson": True,
-            "extract_flat": False,
-            "format": "bestvideo[height>=720]+bestaudio/best[height>=720]/best",
+    candidates = []
+    try:
+        resp = requests.get(PEXELS_API_URL, headers=headers, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+
+        for video in data.get("videos", []):
+            # Get best quality file
+            video_files = video.get("video_files", [])
+            best = None
+            for f in video_files:
+                if f.get("quality") == "hd" or f.get("quality") == "sd":
+                    best = f
+                    break
+            if not best and video_files:
+                best = video_files[0]
+
+            if best:
+                candidates.append(VideoCandidate(
+                    url=best.get("link", ""),
+                    source="pexels",
+                    title=video.get("url", "").split("/")[-1] or query,
+                    duration=video.get("duration", 0),
+                    width=best.get("width", 0),
+                    height=best.get("height", 0),
+                    thumbnail=video.get("image", ""),
+                    video_files=video_files,
+                ))
+    except Exception as e:
+        logger.warning("Pexels search failed for '%s': %s", query, e)
+
+    return candidates
+
+
+def search_videos_for_products(
+    products: list[dict],
+    output_dir: Path,
+    max_videos_per_product: int = 1,
+) -> dict:
+    """
+    Search videos for each trending product.
+
+    Args:
+        products: List from trends_analyzer ranked_products
+        output_dir: Directory to save search results
+        max_videos_per_product: Max videos to find per product
+
+    Returns:
+        Dict with search results per product
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not PEXELS_API_KEY:
+        logger.warning(
+            "Skipping video search: PEXELS_API_KEY not set.\n"
+            "Get a free key at https://www.pexels.com/api/ and set:\n"
+            "  export PEXELS_API_KEY='your_key_here'\n"
+            "  # or add to .env file"
+        )
+        result = {
+            "status": "skipped",
+            "reason": "PEXELS_API_KEY not set",
+            "products": [],
         }
+        return result
 
-    def _resolution_to_pixels(self, resolution: str) -> int:
-        """Convert resolution string like '720p' to height in pixels."""
-        mapping = {
-            "360p": 360,
-            "480p": 480,
-            "720p": 720,
-            "1080p": 1080,
-            "1440p": 1440,
-            "2160p": 2160,
-        }
-        return mapping.get(resolution, 720)
+    results = []
+    for product in products:
+        name = product.get("name", "")
+        logger.info("Searching videos for: %s", name)
 
-    def _meets_quality(self, video_info: Dict[str, Any]) -> bool:
-        """Check if video meets minimum quality thresholds."""
-        # Check duration
-        duration = video_info.get("duration")
-        if duration is not None:
-            if duration < self.min_duration or duration > self.max_duration:
-                logger.debug(f"Video duration {duration}s outside range [{self.min_duration}, {self.max_duration}]")
-                return False
+        # Search in English and Portuguese
+        queries = [name, f"{name} product", f"{name} tech"]
+        all_videos = []
 
-        # Check resolution (height)
-        height = video_info.get("height")
-        min_height = self._resolution_to_pixels(self.min_resolution)
-        if height is not None and height < min_height:
-            logger.debug(f"Video height {height} below minimum {min_height}")
-            return False
+        for query in queries:
+            videos = search_pexels(query, max_results=max_videos_per_product)
+            all_videos.extend(videos)
+            time.sleep(0.5 + random.uniform(0.2, 1))
 
-        # Check bitrate (approximate via tbr)
-        tbr = video_info.get("tbr")
-        if tbr is not None and tbr < self.min_bitrate:
-            logger.debug(f"Video bitrate {tbr} kbps below minimum {self.min_bitrate}")
-            return False
-
-        return True
-
-    def _extract_video_info(self, url: str, source: str) -> Optional[VideoCandidate]:
-        """Extract video metadata using yt-dlp."""
-        try:
-            with yt_dlp.YoutubeDL(self.ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                if not info:
-                    return None
-
-                # Filter out playlists
-                if info.get("_type") == "playlist" or "entries" in info:
-                    # For playlists, we might want to iterate entries; for now skip
-                    logger.debug(f"Skipping playlist URL: {url}")
-                    return None
-
-                # Check quality thresholds
-                if not self._meets_quality(info):
-                    return None
-
-                candidate = VideoCandidate(
-                    url=info.get("webpage_url", url),
-                    source=source,
-                    title=info.get("title"),
-                    duration=info.get("duration"),
-                    width=info.get("width"),
-                    height=info.get("height"),
-                    thumbnail=info.get("thumbnail"),
-                    description=info.get("description"),
-                    uploader=info.get("uploader"),
-                    upload_date=info.get("upload_date"),
-                    view_count=info.get("view_count"),
-                    like_count=info.get("like_count"),
-                    comment_count=info.get("comment_count"),
-                    metadata={
-                        "formats": info.get("formats"),
-                        "tags": info.get("tags"),
-                        "categories": info.get("categories"),
-                    },
-                )
-                return candidate
-        except Exception as e:
-            logger.warning(f"Failed to extract info from {url}: {e}")
-            return None
-
-    def _search_tier1_source(self, source: Dict[str, Any], query: str) -> List[VideoCandidate]:
-        """Search a Tier 1 source using yt-dlp's built-in search (if supported)."""
-        source_name = source.get("name", "").lower()
-        base_url = source.get("url", "")
-        candidates = []
-
-        # yt-dlp supports search on some sites via search URLs
-        search_url = None
-        if source_name == "pexels":
-            search_url = f"{base_url}{quote_plus(query)}"
-        elif source_name == "pixabay":
-            search_url = f"{base_url}videos/search/{quote_plus(query)}"
-        elif source_name == "coverr":
-            # Coverr doesn't have direct search via yt-dlp; fallback to Brave Search
-            pass
-        elif source_name == "mixkit":
-            search_url = f"{base_url}free-videos/{quote_plus(query)}"
-
-        if search_url:
-            logger.info(f"Searching {source_name} via yt-dlp: {search_url}")
-            candidate = self._extract_video_info(search_url, source_name)
-            if candidate:
-                candidates.append(candidate)
-
-        # If yt-dlp search fails, fallback to Brave Search for this source
-        if not candidates and self.brave_api_key:
-            brave_candidates = self._brave_search(query, source=source_name)
-            candidates.extend(brave_candidates)
-
-        return candidates
-
-    def _brave_search(self, query: str, source: Optional[str] = None) -> List[VideoCandidate]:
-        """Search videos using Brave Search API."""
-        if not self.brave_api_key:
-            logger.warning("BRAVE_API_KEY not set, skipping Brave Search")
-            return []
-
-        # Construct search query with source site filter
-        search_query = f"{query} video"
-        if source:
-            site_map = {
-                "pexels": "site:pexels.com",
-                "pixabay": "site:pixabay.com",
-                "coverr": "site:coverr.co",
-                "mixkit": "site:mixkit.co",
-            }
-            site_filter = site_map.get(source)
-            if site_filter:
-                search_query = f"{search_query} {site_filter}"
-
-        headers = {
-            "Accept": "application/json",
-            "Accept-Encoding": "gzip",
-            "X-Subscription-Token": self.brave_api_key,
-        }
-        params = {
-            "q": search_query,
-            "count": 5,
-            "search_lang": "pt",
-            "video_search": True,
-        }
-
-        try:
-            resp = requests.get(
-                "https://api.search.brave.com/res/v1/video/search",
-                headers=headers,
-                params=params,
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            results = data.get("video", {}).get("results", [])
-            candidates = []
-            for item in results:
-                url = item.get("url")
-                if not url:
-                    continue
-                # Extract metadata from Brave result
-                candidate = VideoCandidate(
-                    url=url,
-                    source="brave_search",
-                    title=item.get("title"),
-                    description=item.get("description"),
-                    thumbnail=item.get("thumbnail", {}).get("src"),
-                    duration=item.get("duration"),
-                    metadata={
-                        "brave_meta": item.get("meta_url"),
-                        "page_age": item.get("page_age"),
-                        "age": item.get("age"),
-                    },
-                )
-                # Further quality check via yt-dlp (optional, could be heavy)
-                # For now, accept all results; filtering later
-                candidates.append(candidate)
-            return candidates
-        except Exception as e:
-            logger.error(f"Brave Search failed: {e}")
-            return []
-
-    def search(self, query: str, max_results: int = 10) -> List[VideoCandidate]:
-        """Search for videos across all configured sources.
-
-        Args:
-            query: Search query (product name, keywords in Portuguese)
-            max_results: Maximum number of candidates to return
-
-        Returns:
-            List of VideoCandidate objects sorted by relevance/quality
-        """
-        all_candidates = []
-
-        # Search Tier 1 sources via yt-dlp
-        for source in self.tier1_sources:
-            candidates = self._search_tier1_source(source, query)
-            all_candidates.extend(candidates)
-            if len(all_candidates) >= max_results:
+            if len(all_videos) >= max_videos_per_product:
                 break
 
-        # If we still need more, use Brave Search across all sources
-        if len(all_candidates) < max_results and self.brave_api_key:
-            brave_candidates = self._brave_search(query)
-            all_candidates.extend(brave_candidates)
-
         # Deduplicate by URL
-        seen_urls = set()
-        unique_candidates = []
-        for cand in all_candidates:
-            if cand.url not in seen_urls:
-                seen_urls.add(cand.url)
-                unique_candidates.append(cand)
+        seen = set()
+        unique = []
+        for v in all_videos:
+            if v.url not in seen:
+                seen.add(v.url)
+                unique.append(v.to_dict())
 
-        # Sort by relevance (view_count, like_count, duration)
-        # For now, simple heuristic: prefer videos with higher engagement and suitable duration
-        def score(cand: VideoCandidate) -> float:
-            s = 0.0
-            if cand.view_count:
-                s += min(cand.view_count / 10000, 10)  # up to 10 points
-            if cand.like_count:
-                s += min(cand.like_count / 1000, 5)  # up to 5 points
-            if cand.duration:
-                # Prefer middle range (30-60 sec)
-                if 30 <= cand.duration <= 60:
-                    s += 5
-                elif 10 <= cand.duration <= 120:
-                    s += 2
-            return s
+        product_result = {
+            "product_name": name,
+            "product_score": product.get("score", 0),
+            "videos": unique[:max_videos_per_product],
+            "videos_found": len(unique[:max_videos_per_product]),
+        }
+        results.append(product_result)
+        logger.info("  Found %d video(s) for '%s'", product_result["videos_found"], name)
 
-        unique_candidates.sort(key=score, reverse=True)
-        return unique_candidates[:max_results]
+    # Save results
+    search_results = {
+        "products": results,
+        "total_products": len(results),
+        "products_with_videos": sum(1 for p in results if p["videos"]),
+        "total_videos": sum(p["videos_found"] for p in results),
+    }
+
+    results_path = output_dir / "search_results.json"
+    with open(results_path, "w", encoding="utf-8") as f:
+        json.dump(search_results, f, indent=2, ensure_ascii=False)
+    logger.info("Saved search results to %s", results_path)
+
+    return search_results
 
 
 if __name__ == "__main__":
-    # Simple test
-    import sys
     logging.basicConfig(level=logging.INFO)
-    searcher = VideoSearcher()
-    query = "smartphone unboxing" if len(sys.argv) < 2 else sys.argv[1]
-    results = searcher.search(query, max_results=3)
-    for i, cand in enumerate(results, 1):
-        print(f"\n--- Result {i} ---")
-        print(f"URL: {cand.url}")
-        print(f"Source: {cand.source}")
-        print(f"Title: {cand.title}")
-        print(f"Duration: {cand.duration}s")
-        print(f"Resolution: {cand.width}x{cand.height}")
-        print(f"Views: {cand.view_count}")
+    # Test with mock products
+    mock_products = [
+        {"name": "smartphone", "score": 90},
+        {"name": "headphones", "score": 70},
+    ]
+    result = search_videos_for_products(
+        products=mock_products,
+        output_dir=Path("/tmp/pexels_test"),
+        max_videos_per_product=2,
+    )
+    print(json.dumps(result, indent=2, ensure_ascii=False))

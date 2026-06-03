@@ -37,8 +37,10 @@ except (ImportError, ModuleNotFoundError):
 
 STORAGE_ROOT = os.environ.get(
     "SHOPEE_STORAGE_ROOT",
-    "/mnt/user/data/shopee-agent"
+    "/mnt/user/data/shopee_execute"
 )
+# Default dirs (legacy / standalone mode). When called from main.py,
+# these are overridden via set_output_dir() with the day's folder.
 APPROVED_DIR = Path(STORAGE_ROOT) / "approved"
 LINKS_DIR = Path(STORAGE_ROOT) / "links"
 CSV_BACKUP_DIR = Path(STORAGE_ROOT) / "csv_backup"
@@ -53,6 +55,17 @@ logger = logging.getLogger("affiliate_linker")
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
+
+def set_output_dir(day_dir: Path):
+    """Redirect all output directories to a date-based folder.
+
+    Called by main.py to route links/approved/csv into /YYYY-MM-DD/.
+    """
+    global APPROVED_DIR, LINKS_DIR, CSV_BACKUP_DIR
+    APPROVED_DIR = day_dir / "approved"
+    LINKS_DIR = day_dir / "links"
+    CSV_BACKUP_DIR = day_dir / "csv_backup"
+
 
 def ensure_dirs():
     """Cria diretórios necessários se não existirem."""

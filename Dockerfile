@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender-dev \
-    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -27,8 +26,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project files
 COPY . .
 
-# Create runtime directories
-RUN mkdir -p trends raw_videos approved rejected reports config/prompts logs
+# Runtime directories are created by main.py under /mnt/user/data/shopee_execute/YYYY-MM-DD/
+# Only create app-local dirs for code/config
+RUN mkdir -p config/prompts
 
 # Make entrypoint executable
 RUN chmod +x /app/entrypoint.sh
@@ -36,8 +36,7 @@ RUN chmod +x /app/entrypoint.sh
 # Set environment (override with docker run -e or .env)
 ENV SHOPEE_APP_ID=""
 ENV SHOPEE_APP_SECRET=""
-ENV CRON_SCHEDULE="0 8 * * *"
 ENV TZ=America/Sao_Paulo
 
-# Entrypoint: cron daemon (container fica vivo)
+# Entrypoint: keeps container alive for manual execution
 ENTRYPOINT ["/app/entrypoint.sh"]

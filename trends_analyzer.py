@@ -559,24 +559,37 @@ def build_keyword_list(config: dict) -> list[str]:
     return unique
 
 
-def run_trends_analysis(config_path: Path = CONFIG_PATH,
+def run_trends_analysis(config: dict | None = None,
+                        config_path: Path = CONFIG_PATH,
                         output_dir: Path | None = None,
                         use_llm: bool = True) -> dict:
     """
     Execute the full trends analysis pipeline.
 
-    Returns the analysis result dict (also saved to trends/YYYY-MM-DD.json).
+    Args:
+        config: Pre-loaded config dict (preferred when called from main.py).
+        config_path: Path to config.yaml (used if config is None).
+        output_dir: Directory to save output files (e.g. day_dir/trends).
+        use_llm: Whether to use LLM refinement.
+
+    Returns the analysis result dict (also saved to output_dir/YYYY-MM-DD.json).
     """
-    logger.info("Loading config from %s", config_path)
-    config = load_config(config_path)
+    if config is None:
+        logger.info("Loading config from %s", config_path)
+        config = load_config(config_path)
+    else:
+        logger.info("Using pre-loaded config")
+
+    if output_dir is None:
+        storage_root = Path(config.get("project", {}).get(
+            "storage_root", str(BASE_DIR)
+        ))
+        output_dir = storage_root / "trends"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     storage_root = Path(config.get("project", {}).get(
         "storage_root", str(BASE_DIR)
     ))
-    if output_dir is None:
-        output_dir = storage_root / "trends"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     db_path = storage_root / "data.db"
     db_conn = init_db(db_path)
 
@@ -724,5 +737,7 @@ if __name__ == "__main__":
             output_dir=args.output_dir,
             use_llm=not args.no_llm,
         )
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        output_file = args.output_dir / f"{date_str}.json" if args.output_dir else Path("trends") / f"{date_str}.json"
         print(f"\nAnalysis complete. {len(result['ranked_products'])} products ranked.")
-        print(f"Output: {Path(__file__).parent / 'trends' / f'{datetime.now().strftime('%Y-%m-%d')}.json'}")
+        print(f"Output: {output_file}")

@@ -3,7 +3,7 @@
 
 project:
   name: "shopee-videos"
-  storage_root: "/mnt/user/data/shopee-agent"
+  storage_root: "/mnt/user/data/shopee_execute"
   max_videos_per_product: 1
   rejected_ttl_days: 7
 

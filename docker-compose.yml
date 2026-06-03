@@ -7,13 +7,11 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      # Dados persistentes (trends, links, videos, db)
-      - /mnt/user/data/shopee-agent:/mnt/user/data/shopee-agent
+      # Dados persistentes (trends, links, videos, db) — organizado por data
+      - /mnt/user/data/shopee_execute:/mnt/user/data/shopee_execute
       # Config editável sem rebuild
       - ./config.yaml:/app/config.yaml:ro
       - ./config/prompts:/app/config/prompts:ro
     environment:
-      # Cron: executar pipeline diariamente às 08:00 (horário do container)
-      CRON_SCHEDULE: "0 8 * * *"
       # Timezone (ajuste para seu fuso)
       TZ: America/Sao_Paulo

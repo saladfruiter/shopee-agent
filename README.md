@@ -14,6 +14,28 @@ Pipeline automatizado de 7 etapas para curadoria de videos de produtos Shopee (n
 | 6. Link afiliado | Gera link via API oficial | shpee |
 | 7. Legenda | Copy em PT-BR otimizada para conversao | qwen3.6-plus |
 
+## Estrutura de Output
+
+Os arquivos são organizados por data em `/mnt/user/data/shopee_execute/`:
+
+```
+/mnt/user/data/shopee_execute/
+├── data.db                          # DB de engagement (persiste entre runs)
+├── logs/
+│   └── pipeline.log
+├── 2026-06-02/                      # Pasta do dia
+│   ├── pipeline_meta.json           # Metadata da execução
+│   ├── trends/
+│   │   └── 2026-06-02.json          # Produtos ranqueados
+│   ├── raw_videos/                  # Videos baixados
+│   ├── approved/                    # Videos aprovados + links
+│   │   └── produto_link.txt
+│   ├── links/
+│   │   └── produto_meta.json
+│   ├── rejected/                    # Videos rejeitados
+│   └── reports/                     # Relatorios
+```
+
 ## Requisitos
 
 - Python 3.11+
@@ -35,17 +57,22 @@ cp .env.example .env
 # Edite .env com suas credenciais da Shopee Affiliate API
 
 # 3. Build da imagem
-docker build -t shopee-pipeline .
+docker compose build
 
-# 4. Executar (dry-run primeiro)
-docker run --rm -v $(pwd)/data:/app/data \
-  --env-file .env \
-  shopee-pipeline python main.py --dry-run
+# 4. Subir container (manual, sem cron)
+docker compose up -d
 
-# 5. Executar producao
-docker run --rm -v $(pwd)/data:/app/data \
-  --env-file .env \
-  shopee-pipeline python main.py
+# 5. Executar pipeline manualmente
+docker exec shopee-pipeline python main.py
+
+# 6. Dry-run primeiro
+docker exec shopee-pipeline python main.py --dry-run
+
+# 7. Executar etapa específica
+docker exec shopee-pipeline python main.py --step 1
+
+# 8. Override de data
+docker exec shopee-pipeline python main.py --date 2026-06-01
 ```
 
 ### Local (sem Docker)
@@ -72,6 +99,8 @@ cp .env.example .env
 # 5. Executar
 python main.py --dry-run   # validacao sem downloads
 python main.py             # producao
+python main.py --step 1    # apenas trends
+python main.py --date 2026-06-01  # pasta especifica
 ```
 
 ## Credenciais
@@ -91,16 +120,13 @@ Nunca compartilhe ou commite essas credenciais.
 shopee-videos-pipeline/
 ├── config.yaml          # Configuração central
 ├── config/prompts/      # Templates de prompts para IA
-├── trends/              # Dados de tendencias (JSON)
-├── raw_videos/          # Videos baixados (brutos)
-├── approved/            # Videos aprovados + metadata
-├── rejected/            # Videos rejeitados + motivo (auto-delete 7 dias)
-├── reports/             # Relatorios de execucao
-├── logs/                # Logs do pipeline
-├── scripts/             # Scripts auxiliares
 ├── main.py              # Entry point
+├── trends_analyzer.py   # Etapa 1: tendencias
+├── affiliate_linker.py  # Etapa 6: links de afiliado
 ├── requirements.txt     # Dependencias Python
 ├── Dockerfile           # Imagem Docker
+├── docker-compose.yml   # Compose para deploy
+├── entrypoint.sh        # Container entry (manual mode)
 ├── .env.example         # Template de variaveis de ambiente
 └── .gitignore
 ```
@@ -108,6 +134,7 @@ shopee-videos-pipeline/
 ## Configuracao
 
 Edite `config.yaml` para ajustar:
+- `storage_root`: diretorio base (padrao: `/mnt/user/data/shopee_execute`)
 - Pesos de analise de tendencias
 - Fontes de video (Tier 1)
 - Regras de conformidade

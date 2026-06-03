@@ -69,6 +69,77 @@ def run_step_2_video_search(config: dict, day_dir: Path, trends_result: dict) ->
     return result
 
 
+def run_step_3_4_download_filter(config: dict, day_dir: Path) -> dict:
+    """Run video download + visual filter (Etapas 3+4)."""
+    from video_processor import process_and_download
+
+    search_path = day_dir / "raw_videos" / "search_results.json"
+    if not search_path.exists():
+        logger.warning("No search_results.json found. Run step 2 first.")
+        return {"status": "skipped", "reason": "No search results"}
+
+    quality = config.get("video_quality", {})
+    result = process_and_download(
+        search_results_path=search_path,
+        output_dir=day_dir,
+        min_duration=quality.get("min_duration_sec", 5),
+        max_duration=quality.get("max_duration_sec", 60),
+        min_height=480,
+        reject_faces=True,
+    )
+    logger.info("Step 3+4 complete: %d approved, %d rejected",
+                result.get("approved", 0), result.get("rejected", 0))
+    return result
+
+
+def run_step_5_compliance(config: dict, day_dir: Path, use_llm: bool = True) -> dict:
+    """Run compliance check (Etapa 5) on approved videos."""
+    from compliance_checker import run_compliance_check
+    approved_dir = day_dir / "approved"
+    output_dir = day_dir / "compliance"
+    result = run_compliance_check(
+        approved_dir=approved_dir,
+        output_dir=output_dir,
+        use_llm=use_llm,
+    )
+    logger.info("Step 5 complete: %d passed, %d failed",
+                result.get("passed", 0), result.get("failed", 0))
+    return result
+
+
+def run_step_6_affiliate(config: dict, day_dir: Path, compliance_result: dict) -> dict:
+    """Generate affiliate links (Etapa 6) for compliant videos."""
+    from affiliate_linker import generate_affiliate_links
+    compliant_videos = [
+        d for d in compliance_result.get("details", [])
+        if d.get("passed")
+    ]
+    result = generate_affiliate_links(
+        videos=compliant_videos,
+        output_dir=day_dir / "links",
+        config=config,
+    )
+    logger.info("Step 6 complete: %d links generated", result.get("links_generated", 0))
+    return result
+
+
+def run_step_7_caption(config: dict, day_dir: Path, compliance_result: dict, affiliate_result: dict) -> dict:
+    """Generate PT-BR captions (Etapa 7) for compliant videos."""
+    from caption_generator import generate_captions
+    compliant_videos = [
+        d for d in compliance_result.get("details", [])
+        if d.get("passed")
+    ]
+    result = generate_captions(
+        videos=compliant_videos,
+        affiliate_links=affiliate_result.get("links", []),
+        output_dir=day_dir / "captions",
+        config=config,
+    )
+    logger.info("Step 7 complete: %d captions generated", result.get("captions_generated", 0))
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="Shopee Videos Pipeline")
     parser.add_argument(
@@ -149,11 +220,59 @@ def main():
         trends_result = json.loads((day_dir / "trends" / f"{date_str}.json").read_text())
         run_step_2_video_search(cfg, day_dir, trends_result)
 
-    # Steps 3-7: TODO — implemented in subsequent tasks
-    for step_num in range(3, 8):
-        if args.step is not None and args.step != step_num:
-            continue
-        logger.info("STEP %d: NOT YET IMPLEMENTED", step_num)
+    # Step 3+4: Download + Visual Filter
+    if args.step is None or args.step == 3 or args.step == 4:
+        logger.info("=" * 60)
+        logger.info("STEP 3+4: Download + Visual Filter")
+        logger.info("=" * 60)
+        run_step_3_4_download_filter(cfg, day_dir)
+
+    # Step 5: Compliance Check
+    if args.step is None or args.step == 5:
+        logger.info("=" * 60)
+        logger.info("STEP 5: Compliance Check")
+        logger.info("=" * 60)
+        compliance_result = run_step_5_compliance(cfg, day_dir, use_llm=not args.no_llm)
+    else:
+        compliance_result = None
+
+    # Step 6: Affiliate Links
+    if args.step is None or args.step == 6:
+        logger.info("=" * 60)
+        logger.info("STEP 6: Affiliate Links")
+        logger.info("=" * 60)
+        if compliance_result is None:
+            compliance_path = day_dir / "compliance" / "compliance_summary.json"
+            if compliance_path.exists():
+                with open(compliance_path) as f:
+                    compliance_result = json.load(f)
+            else:
+                logger.warning("No compliance results. Run step 5 first.")
+                compliance_result = {"details": [], "passed": 0}
+        affiliate_result = run_step_6_affiliate(cfg, day_dir, compliance_result)
+    else:
+        affiliate_result = None
+
+    # Step 7: Caption Generation
+    if args.step is None or args.step == 7:
+        logger.info("=" * 60)
+        logger.info("STEP 7: Caption Generation")
+        logger.info("=" * 60)
+        if compliance_result is None:
+            compliance_path = day_dir / "compliance" / "compliance_summary.json"
+            if compliance_path.exists():
+                with open(compliance_path) as f:
+                    compliance_result = json.load(f)
+            else:
+                compliance_result = {"details": [], "passed": 0}
+        if affiliate_result is None:
+            links_path = day_dir / "links" / "affiliate_links.json"
+            if links_path.exists():
+                with open(links_path) as f:
+                    affiliate_result = json.load(f)
+            else:
+                affiliate_result = {"links": []}
+        run_step_7_caption(cfg, day_dir, compliance_result, affiliate_result)
 
     # Update metadata with completion
     meta["pipeline_end"] = datetime.now().isoformat()

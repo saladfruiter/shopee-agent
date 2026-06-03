@@ -496,6 +496,95 @@ def process_trends(trends_path: str, top: int = 5, app_id: str = None,
     return results
 
 
+# ── Pipeline integration ──────────────────────────────────────────────
+
+def generate_affiliate_links(
+    videos: list[dict],
+    output_dir: Path,
+    config: dict = None,
+) -> dict:
+    """
+    Generate affiliate links for compliant videos.
+
+    Args:
+        videos: List of compliant video entries from compliance checker
+        output_dir: Directory to save links
+        config: Pipeline config dict
+
+    Returns:
+        Dict with generated links
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not videos:
+        logger.warning("No compliant videos to generate links for")
+        return {"links_generated": 0, "links": []}
+
+    shopee_config = (config or {}).get("shopee", {})
+    app_id = os.environ.get(shopee_config.get("app_id_env", "SHOPEE_APP_ID"), "")
+    app_secret = os.environ.get(shopee_config.get("app_secret_env", "SHOPEE_APP_SECRET"), "")
+
+    linker = AffiliateLinker(app_id=app_id or None, app_secret=app_secret or None)
+
+    links = []
+    for video in videos:
+        product_name = video.get("product", "unknown")
+        video_file = video.get("video_file", "")
+
+        # Generate a placeholder Shopee search URL
+        # In production, this would come from product search
+        search_url = f"https://shopee.com.br/search?keyword={product_name.replace(' ', '%20')}"
+
+        result = {
+            "product_name": product_name,
+            "video_file": video_file,
+            "search_url": search_url,
+            "affiliate_link": None,  # Would be set by real API
+            "status": "pending_api_credentials",
+            "note": "Add SHOPEE_APP_ID and SHOPEE_APP_SECRET to .env for real affiliate links",
+        }
+
+        # If we have API credentials, try to generate real link
+        if app_id and app_secret:
+            try:
+                api_result = linker.generate_link(search_url, product_name, "pipeline")
+                if api_result.get("affiliate_link"):
+                    result["affiliate_link"] = api_result["affiliate_link"]
+                    result["status"] = "generated"
+                    result["method"] = api_result.get("method")
+            except Exception as e:
+                logger.warning("Failed to generate affiliate link for %s: %s", product_name, e)
+                result["error"] = str(e)
+        else:
+            # Fallback: save placeholder
+            logger.info("No Shopee API credentials. Saving placeholder link for %s", product_name)
+            result["affiliate_link"] = search_url
+            result["status"] = "placeholder"
+
+        links.append(result)
+
+        # Save individual link file
+        from affiliate_linker import slugify
+        slug = slugify(product_name)
+        link_path = output_dir / f"{slug}_link.json"
+        with open(link_path, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+
+    # Save summary
+    summary = {
+        "generated_at": datetime.now().isoformat(),
+        "links_generated": len([l for l in links if l.get("affiliate_link")]),
+        "total_videos": len(videos),
+        "links": links,
+    }
+    summary_path = output_dir / "affiliate_links.json"
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+
+    logger.info("Generated %d affiliate links", summary["links_generated"])
+    return summary
+
+
 # ── CLI ────────────────────────────────────────────────────────────────
 
 def main():

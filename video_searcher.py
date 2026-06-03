@@ -2,8 +2,7 @@
 """
 Video Search Module — Etapa 2 do Pipeline Shopee Videos
 
-Busca videos com licença comercial (Pexels API) para os produtos trending.
-Salva URLs e metadata em raw_videos/search_results.json.
+Busca 30 vídeos por produto na Pexels API (paginação + queries variadas).
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
-# Load .env from project root
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 logger = logging.getLogger("video_searcher")
@@ -48,14 +46,13 @@ class VideoCandidate:
         return asdict(self)
 
 
-def search_pexels(query: str, max_results: int = 5) -> list[VideoCandidate]:
-    """Search Pexels for free commercial license videos."""
+def search_pexels_page(query: str, page: int = 1, per_page: int = 15, orientation: str = "all") -> list[VideoCandidate]:
+    """Search one page of Pexels results."""
     if not PEXELS_API_KEY:
-        logger.warning("PEXELS_API_KEY not set. Set env var to enable video search.")
         return []
 
     headers = {"Authorization": PEXELS_API_KEY}
-    params = {"query": query, "per_page": max_results, "orientation": "portrait"}
+    params = {"query": query, "per_page": per_page, "page": page, "orientation": orientation}
 
     candidates = []
     try:
@@ -64,11 +61,12 @@ def search_pexels(query: str, max_results: int = 5) -> list[VideoCandidate]:
         data = resp.json()
 
         for video in data.get("videos", []):
-            # Get best quality file
             video_files = video.get("video_files", [])
+            # Get best quality file (prefer HD, then SD)
             best = None
             for f in video_files:
-                if f.get("quality") == "hd" or f.get("quality") == "sd":
+                q = f.get("quality", "")
+                if q in ("hd", "sd"):
                     best = f
                     break
             if not best and video_files:
@@ -86,76 +84,80 @@ def search_pexels(query: str, max_results: int = 5) -> list[VideoCandidate]:
                     video_files=video_files,
                 ))
     except Exception as e:
-        logger.warning("Pexels search failed for '%s': %s", query, e)
+        logger.warning("Pexels search failed for '%s' page %d: %s", query, page, e)
 
     return candidates
+
+
+def search_pexels(query: str, max_results: int = 30) -> list[VideoCandidate]:
+    """Search Pexels with pagination to get up to max_results."""
+    all_candidates = []
+    page = 1
+    per_page = min(max_results, 15)  # Pexels max per_page is 80, but 15 is safe
+
+    while len(all_candidates) < max_results and page <= 3:
+        candidates = search_pexels_page(query, page=page, per_page=per_page)
+        if not candidates:
+            break
+        all_candidates.extend(candidates)
+        page += 1
+        time.sleep(0.3 + random.uniform(0.1, 0.5))
+
+    return all_candidates[:max_results]
 
 
 def search_videos_for_products(
     products: list[dict],
     output_dir: Path,
-    max_videos_per_product: int = 1,
+    max_videos_per_product: int = 30,
 ) -> dict:
     """
-    Search videos for each trending product.
-
-    Args:
-        products: List from trends_analyzer ranked_products
-        output_dir: Directory to save search results
-        max_videos_per_product: Max videos to find per product
-
-    Returns:
-        Dict with search results per product
+    Search up to max_videos_per_product videos for each trending product.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if not PEXELS_API_KEY:
-        logger.warning(
-            "Skipping video search: PEXELS_API_KEY not set.\n"
-            "Get a free key at https://www.pexels.com/api/ and set:\n"
-            "  export PEXELS_API_KEY='your_key_here'\n"
-            "  # or add to .env file"
-        )
-        result = {
-            "status": "skipped",
-            "reason": "PEXELS_API_KEY not set",
-            "products": [],
-        }
-        return result
+        logger.warning("PEXELS_API_KEY not set.")
+        return {"status": "skipped", "reason": "PEXELS_API_KEY not set", "products": []}
 
     results = []
     for product in products:
         name = product.get("name", "")
-        logger.info("Searching videos for: %s", name)
+        logger.info("Searching up to %d videos for: %s", max_videos_per_product, name)
 
-        # Search in English and Portuguese
-        queries = [name, f"{name} product", f"{name} tech"]
+        # Multiple queries in English and Portuguese to maximize results
+        queries = [
+            name,
+            f"{name} product",
+            f"{name} tech",
+            f"{name} gadget",
+            f"{name} unboxing",
+            f"{name} review",
+        ]
+
         all_videos = []
+        seen_urls = set()
 
         for query in queries:
-            videos = search_pexels(query, max_results=max_videos_per_product)
-            all_videos.extend(videos)
-            time.sleep(0.5 + random.uniform(0.2, 1))
-
             if len(all_videos) >= max_videos_per_product:
                 break
 
-        # Deduplicate by URL
-        seen = set()
-        unique = []
-        for v in all_videos:
-            if v.url not in seen:
-                seen.add(v.url)
-                unique.append(v.to_dict())
+            videos = search_pexels(query, max_results=15)
+            for v in videos:
+                if v.url not in seen_urls:
+                    seen_urls.add(v.url)
+                    all_videos.append(v.to_dict())
+
+            time.sleep(0.5 + random.uniform(0.2, 1))
 
         product_result = {
             "product_name": name,
             "product_score": product.get("score", 0),
-            "videos": unique[:max_videos_per_product],
-            "videos_found": len(unique[:max_videos_per_product]),
+            "videos": all_videos[:max_videos_per_product],
+            "videos_found": len(all_videos[:max_videos_per_product]),
         }
         results.append(product_result)
-        logger.info("  Found %d video(s) for '%s'", product_result["videos_found"], name)
+        logger.info("  Found %d unique video(s) for '%s'", product_result["videos_found"], name)
 
     # Save results
     search_results = {
@@ -175,14 +177,10 @@ def search_videos_for_products(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    # Test with mock products
-    mock_products = [
-        {"name": "smartphone", "score": 90},
-        {"name": "headphones", "score": 70},
-    ]
+    mock_products = [{"name": "smartphone", "score": 90}]
     result = search_videos_for_products(
         products=mock_products,
         output_dir=Path("/tmp/pexels_test"),
-        max_videos_per_product=2,
+        max_videos_per_product=30,
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))

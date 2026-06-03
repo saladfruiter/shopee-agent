@@ -84,11 +84,12 @@ def run_step_3_4_download_filter(config: dict, day_dir: Path) -> dict:
         output_dir=day_dir,
         min_duration=quality.get("min_duration_sec", 5),
         max_duration=quality.get("max_duration_sec", 60),
-        min_height=480,
-        reject_faces=True,
+        min_height=720,
+        max_approved=5,
     )
-    logger.info("Step 3+4 complete: %d approved, %d rejected",
-                result.get("approved", 0), result.get("rejected", 0))
+    logger.info("Step 3+4 complete: %d approved, %d rejected (from %d attempted)",
+                result.get("final_approved", 0), result.get("total_rejected", 0),
+                result.get("total_videos_attempted", 0))
     return result
 
 

@@ -4,7 +4,7 @@
 project:
   name: "shopee-videos"
   storage_root: "/mnt/user/data/shopee_execute"
-  max_videos_per_product: 1
+  max_videos_per_product: 30
   rejected_ttl_days: 7
 
 # Trend analysis weights (must sum to 1.0)
@@ -82,7 +82,7 @@ video_sources:
 
 # Video quality thresholds
 video_quality:
-  min_resolution: "480p"
+  min_resolution: "720p"
   min_duration_sec: 5
   max_duration_sec: 60
   min_bitrate_kbps: 500
